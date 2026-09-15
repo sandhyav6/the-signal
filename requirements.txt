@@ -1,0 +1,37 @@
+# ── Core Framework ────────────────────────────────────────────────────────────
+# NOTE: versions bumped from the original pins on 2026-09-14 — this machine only
+# has Python 3.14 available, and the original pins (fastapi 0.111.0, pydantic
+# 2.7.1, sqlalchemy 2.0.30, streamlit 1.35.0, numpy 1.26.4, matplotlib 3.9.0)
+# predate cp314 wheels and either hang/fail building from source (pydantic-core
+# needs Rust, numpy needs a C compiler — neither is installed). Pinned here to
+# the exact versions verified to install and run on this environment.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+pydantic-settings==2.15.0
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.52
+
+# ── HTTP / News Sources ───────────────────────────────────────────────────────
+httpx==0.28.1
+feedparser==6.0.14
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+streamlit==1.63.0
+requests==2.34.2
+
+# ── Environment ───────────────────────────────────────────────────────────────
+python-dotenv==1.2.3
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx  # already listed above (used by TestClient too)
+
+# ── Benchmarking / Charts ─────────────────────────────────────────────────────
+matplotlib==3.11.2
+numpy==2.5.3
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dateutil==2.9.0.post0
