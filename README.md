@@ -171,10 +171,7 @@ once the backend is running. Full endpoint reference (13 endpoints):
 | GET/PUT | `/preferences` | view / manually edit preferences |
 | POST | `/refresh` | pull new articles |
 
-## 12. UI Screenshots
-
-*(Placeholder section — run the app locally per Section 15 to see it live;
-screenshots weren't committed to keep the repo binary-free.)*
+## 12. UI 
 
 An editorial identity ("The Signal"), not a dashboard: a serif masthead
 (Fraunces) over a horizontal section nav (For You, Latest, Trending,
