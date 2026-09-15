@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/*
+  Design tokens for "The Signal" — a considered editorial identity:
+  warm ivory paper + ink, an oxblood signature accent (not a generic
+  blue/purple), a muted brass secondary for dividers and quiet emphasis.
+  Fraunces carries headlines (a serif with real character), Public Sans
+  carries body copy and UI chrome, IBM Plex Mono carries metadata/scores.
+*/
+@theme {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --color-paper: #faf7f1;
+  --color-paper-raised: #ffffff;
+  --color-ink: #1c1a17;
+  --color-ink-soft: #4a453e;
+  --color-ink-faint: #837b6e;
+  --color-line: #e6ded0;
+  --color-line-strong: #d2c6ac;
+
+  --color-signature: #7f2c30;
+  --color-signature-soft: #f4e3e0;
+  --color-signature-ink: #5c1f22;
+
+  --color-brass: #a9793b;
+  --color-brass-soft: #f2e7d3;
+
+  --color-good: #386a4c;
+  --color-bad: #a13f3f;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-signature-soft);
+  color: var(--color-signature-ink);
+}
+
+/* A hairline rule that reads as considered rather than a default <hr>. */
+.rule {
+  border-top: 1px solid var(--color-line);
+}
+
+/* Editorial numerals for anything tabular: scores, counts, dates. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1024px) {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+}
