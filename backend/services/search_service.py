@@ -21,7 +21,8 @@ def search_articles(query: str, page: int = 1, limit: int = 20) -> tuple[list[di
 
     Complexity: O(a*(n+m)) — a articles, each an O(n+m) Rabin-Karp scan of
     its title+description (n) against the query (m) — plus an O(a log a)
-    sort of the matches by recency.
+    sort of the matches by recency. Other outlets' copies of a story
+    already in the results (near-duplicates) are left out.
     """
     query_lower = query.lower()
     articles = repository.get_articles_with_topics()
@@ -29,7 +30,8 @@ def search_articles(query: str, page: int = 1, limit: int = 20) -> tuple[list[di
     matches = [
         article
         for article in articles
-        if rabin_karp_search(f"{article['title']} {article['description'] or ''}".lower(), query_lower)
+        if article.get("is_duplicate_of") is None
+        and rabin_karp_search(f"{article['title']} {article['description'] or ''}".lower(), query_lower)
     ]
     matches.sort(key=lambda a: a["published_at"], reverse=True)
 

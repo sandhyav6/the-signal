@@ -43,7 +43,8 @@ def get_feed(
         raise APIError(404, f"User {user_id} not found", "user_not_found")
 
     if type == "latest":
-        articles = repository.get_recent_articles(LATEST_WINDOW_DAYS)[:PAGE_SIZE]
+        recent = repository.get_recent_articles_or_stale(LATEST_WINDOW_DAYS)
+        articles = [a for a in recent if a.is_duplicate_of is None][:PAGE_SIZE]
         entries = [{"article": serialize_article(a), "score": None, "breakdown": None} for a in articles]
     else:
         results = feed_service.generate_feed(

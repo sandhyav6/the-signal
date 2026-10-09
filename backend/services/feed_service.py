@@ -74,10 +74,14 @@ def generate_feed(
 
     Complexity: O(n) to load/score candidates, O(n log k) for Top-K
     selection, O(k) for the greedy diversification pass.
+
+    If nothing was published in the last `recent_days` days (stale cached
+    or sample data), the window widens rather than returning an empty
+    feed — recency then contributes ~0 and the other terms decide order.
     """
     now = now or datetime.datetime.utcnow()
 
-    articles = repository.get_recent_articles(recent_days)
+    articles = repository.get_recent_articles_or_stale(recent_days)
     candidates = [_article_to_dict(a) for a in articles if a.is_duplicate_of is None]
     if category_id is not None:
         candidates = [c for c in candidates if c["category"] == category_id]

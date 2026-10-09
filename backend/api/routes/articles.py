@@ -49,7 +49,8 @@ def list_articles(
 
 @router.get("/articles/{article_id}")
 def get_article(article_id: int) -> dict:
-    """GET /articles/{id} — full article detail plus related articles.
+    """GET /articles/{id} — full article detail, related articles, and
+    `coverage`: the same story as reported by other outlets.
 
     404 if the article doesn't exist.
     """
@@ -61,6 +62,7 @@ def get_article(article_id: int) -> dict:
     return {
         "article": serialize_article(article),
         "related": [serialize_plain_article(a) for a in related],
+        "coverage": repository.get_coverage(article_id),
     }
 
 

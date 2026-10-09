@@ -36,7 +36,7 @@ def get_related_articles(
     index_manager.build_article_graph), O(V+E) for BFS, O(k log k) to rank
     the k candidates found.
     """
-    articles = repository.get_articles_with_topics(days=window_days)
+    articles = _load_candidates(article_id, window_days)
     by_id = {a["id"]: a for a in articles}
     if article_id not in by_id:
         return []
@@ -47,6 +47,20 @@ def get_related_articles(
     if neighbor_ids:
         return _rank_by_shared_topics(by_id[article_id], neighbor_ids, by_id, limit)
     return _jaccard_fallback(by_id[article_id], articles, limit)
+
+
+def _load_candidates(article_id: int, window_days: int) -> list[dict]:
+    """Recent canonical articles (plus `article_id` itself). If the viewed
+    article is older than the window — stale cached or sample data — the
+    window widens so it still gets related stories. Other outlets' copies
+    of a story are excluded: they'd just be "related" to themselves.
+
+    Complexity: O(n) per query; at most two queries.
+    """
+    articles = repository.get_articles_with_topics(days=window_days)
+    if all(a["id"] != article_id for a in articles):
+        articles = repository.get_articles_with_topics(days=repository.STALE_FALLBACK_DAYS)
+    return [a for a in articles if a.get("is_duplicate_of") is None or a["id"] == article_id]
 
 
 def _rank_by_shared_topics(source: dict, neighbor_ids: list, by_id: dict, limit: int) -> list[dict]:

@@ -25,7 +25,17 @@ def get_trending_topics(
     Returns:
         Up to `limit` (topic, trending_score) tuples, sorted descending.
 
-    Complexity: see algorithms.trending.compute_trending.
+    If no topic was mentioned inside the window, falls back to ranking
+    every stored article rather than returning nothing.
+
+    Complexity: see algorithms.trending.compute_trending (run at most twice).
     """
     articles = repository.get_articles_with_topics(days=CANDIDATE_WINDOW_DAYS)
-    return compute_trending(articles, window_hours=window_hours, top_n=limit)
+    trending = compute_trending(articles, window_hours=window_hours, top_n=limit)
+    if trending:
+        return trending
+    # Nothing in the window (stale cache / sample data): rank over everything
+    # stored, so the rail still shows the most-covered topics.
+    stale_hours = repository.STALE_FALLBACK_DAYS * 24.0
+    articles = repository.get_articles_with_topics(days=repository.STALE_FALLBACK_DAYS)
+    return compute_trending(articles, window_hours=stale_hours, top_n=limit)
