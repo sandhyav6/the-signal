@@ -69,3 +69,5 @@ export const putPreferences = (userId, updates) =>
   request("PUT", "/preferences", { body: { user_id: userId, updates } });
 
 export const postRefresh = (mode) => request("POST", "/refresh", { body: mode ? { mode } : {} });
+
+export const getStatus = () => request("GET", "/status");

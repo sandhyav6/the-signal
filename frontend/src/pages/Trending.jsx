@@ -34,7 +34,7 @@ export default function Trending() {
             >
               <span className="font-mono text-lg text-brass tabular">{String(i + 1).padStart(2, "0")}</span>
               <span className="flex-1 font-display text-xl font-medium capitalize">{t.topic}</span>
-              <span className="font-mono text-xs text-ink-faint tabular">score {t.score.toFixed(1)}</span>
+              <span className="font-mono text-xs text-ink-faint tabular">score {t.score >= 0.1 ? t.score.toFixed(1) : t.score.toExponential(1)}</span>
             </button>
           </li>
         ))}
