@@ -30,8 +30,9 @@ benchmarks that full pipeline.
 
 ## 3. Objectives
 
-- Ingest articles from a mock dataset (and optionally a live NewsAPI
-  source) through one shared normalize → dedupe → store pipeline.
+- Ingest real top headlines from NewsAPI.org (or a bundled sample
+  dataset) through one shared normalize → categorize → dedupe → store
+  pipeline.
 - Rank articles for each user using a transparent, explainable formula —
   never a black-box model.
 - Detect exact and near-duplicate articles.
@@ -55,15 +56,28 @@ benchmarks that full pipeline.
   relevant category's preference weight; a manual preferences editor too.
 - **Bookmarks & history.**
 - **Score transparency:** every ranked card shows its score breakdown.
-- **Mock/live mode toggle** with automatic, silent fallback to mock data
-  if a live fetch fails or returns something unexpected.
-- **Dynamic-feed indicators:** "N new articles added" banner and "last
-  updated Xs ago" label after every refresh.
+- **Live news from NewsAPI.org:** top headlines across 7 sections,
+  auto-categorized and topic-tagged, refreshed in the background every
+  few hours (configurable) and on demand.
+- **Same story, one card:** near-duplicate stories from different outlets
+  are merged at ingestion; the article page lists the other outlets under
+  "Also covered by", and wide coverage boosts the story's popularity.
+- **Graceful degradation:** live → stored articles → sample data, never
+  an error page. A source badge in the masthead ("Live", "Stored",
+  "Sample data") and a plain-language notice explain any fallback.
+- **API-quota protection:** a per-day request budget and a refresh
+  cooldown keep the free NewsAPI plan from being rate-limited.
+- **Mock/live mode toggle** (the Live side is disabled, with a hint, when
+  no API key is configured).
+- **Dynamic-feed indicators:** "N new articles added" and "last updated
+  Xs ago" after every refresh, plus a "New stories available" prompt when
+  a background refresh lands while you're reading.
 
 ## 5. Architecture
 
 ```
-Mock JSON / NewsAPI → Ingestion → Normalize + Dedupe → SQLite
+NewsAPI / Mock JSON → Ingestion → Normalize → Categorize + Tag topics
+   → Exact + near-duplicate check → SQLite
    → Feed Engine (Ranking → Heap Top-K → Greedy Diversify)
    → FastAPI → React UI → User Interactions
    → Preference Engine → loops back into the Feed Engine
@@ -84,9 +98,13 @@ imported). Full diagrams and the actual dependency graph:
 
 | Step | Module |
 |---|---|
-| Ingest (mock or live) | `backend/services/ingestion.py` |
+| Fetch live headlines | `backend/services/news_api_client.py` |
+| Ingest (mock or live) + fallback chain | `backend/services/ingestion.py` |
+| Background refresh | `backend/services/scheduler.py` |
 | Normalize | `backend/services/normalizer.py` |
+| Categorize + tag topics | `backend/algorithms/classification.py` |
 | Exact-duplicate check | inline in `ingestion.py`, keyed on `content_hash` |
+| Near-duplicate merge | `algorithms/deduplication.py` → `is_duplicate_of` |
 | Store | `backend/database/repository.py` |
 | Feed generation | `backend/services/feed_service.py` → `algorithms/{ranking,heap,diversification}.py` |
 | API | `backend/api/routes/*.py` |
@@ -105,7 +123,9 @@ Full request-by-request sequence diagrams: **[docs/architecture.md](docs/archite
 | Trie | `trie.py` | search autocomplete |
 | Binary heap (hand-written) | `heap.py` | Top-K feed & trending selection |
 | Merge sort (hand-written) | `merge_sort.py` | explicit sort utility + benchmark baseline |
-| Jaccard similarity | `deduplication.py` | near-duplicate detection |
+| Jaccard similarity (+ sliding time window) | `deduplication.py` | near-duplicate detection and merging |
+| Keyword-set classification | `classification.py` | categorizing live "general" headlines |
+| Frequency-scored phrase extraction | `classification.py` | topic tags for live articles |
 | Graph + BFS | `graph.py` | related articles |
 | Greedy diversification | `diversification.py` | feed category diversity |
 | Weighted scoring + exponential decay | `ranking.py` | the core ranking formula |
@@ -154,7 +174,7 @@ original design draft: **[docs/database.md](docs/database.md)**.
 ## 11. API Docs
 
 FastAPI auto-generates interactive docs at **http://127.0.0.1:8000/docs**
-once the backend is running. Full endpoint reference (13 endpoints):
+once the backend is running. Full endpoint reference (14 endpoints):
 **[docs/api.md](docs/api.md)**.
 
 | Method | Path | Purpose |
@@ -169,7 +189,8 @@ once the backend is running. Full endpoint reference (13 endpoints):
 | POST/GET | `/bookmarks` | save / list saved articles |
 | GET | `/history` | read history |
 | GET/PUT | `/preferences` | view / manually edit preferences |
-| POST | `/refresh` | pull new articles |
+| POST | `/refresh` | pull new articles (reports which source was used) |
+| GET | `/status` | data-source health: live/cached/sample, API quota |
 
 ## 12. UI 
 
@@ -237,6 +258,11 @@ defaults — **the app runs fully in mock mode with no `.env` file at all**):
 |---|---|---|
 | `NEWS_API_KEY` | *(empty)* | leave blank for mock mode |
 | `NEWS_API_URL` | `https://newsapi.org/v2` | live source endpoint |
+| `NEWS_API_COUNTRY` | `us` | country for top headlines |
+| `NEWS_API_PAGE_SIZE` | `40` | articles requested per section |
+| `NEWS_API_DAILY_BUDGET` | `90` | max NewsAPI requests per UTC day |
+| `REFRESH_COOLDOWN_SECONDS` | `300` | min gap between live fetches |
+| `AUTO_REFRESH_MINUTES` | `180` | background refresh interval in live mode (0 = off) |
 | `DATABASE_URL` | `sqlite:///./data/news.db` | SQLAlchemy connection string |
 | `APP_ENV` | `mock` | `mock` or `live` |
 | `BACKEND_HOST` / `BACKEND_PORT` | `127.0.0.1` / `8000` | FastAPI |
@@ -265,14 +291,37 @@ for the interactive API reference.
 To pull "new" articles at any point: click **Refresh feed** in the
 masthead, or `curl -X POST http://127.0.0.1:8000/refresh`.
 
+### Live news
+
+1. Get a free key at https://newsapi.org/register.
+2. Copy `.env.example` to `.env` and set `NEWS_API_KEY=<your key>` and
+   `APP_ENV=live`.
+3. Restart the backend. It fetches headlines on startup and every
+   `AUTO_REFRESH_MINUTES`; the UI starts on **Live** and the masthead
+   badge shows where the stories came from.
+
+Or ingest once from the command line: `python -m backend.services.ingestion --mode live`.
+
+The free NewsAPI developer plan is for development use only and allows
+100 requests/day. One refresh costs 7 requests (one per section), which is
+why the daily budget and cooldown exist. Headlines are credited to
+NewsAPI.org in the footer, and every story links to its publisher.
+
+**Upgrading an existing database** (created before live ingestion
+categorized and merged stories): run `python -m backend.services.maintenance`
+once. It backfills missing categories and topics and merges duplicate
+stories. Running it again is safe.
+
 ## 16. Running Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-168 tests (unit + integration), covering every algorithm module, every API
-endpoint and its documented error cases, the full ingestion pipeline, and
+196 tests (unit + integration), covering every algorithm module, every API
+endpoint and its documented error cases, the full ingestion pipeline, the
+live NewsAPI path against a fake API (success, partial failure, invalid
+key, request budget, cooldown, cache/mock fallback), and
 the edge-case checklist (empty DB, single article, near-duplicates,
 malformed API responses, 10,000+ synthetic articles, and more — see
 `tests/integration/test_edge_cases.py`).
@@ -310,14 +359,17 @@ naive search in pure Python, and the heap/sort crossover point), is in
 
 - No authentication — a single hardcoded demo user (`id=1`), by design
   (see the architecture doc's Part 12).
-- Live mode (`APP_ENV=live` + a real `NEWS_API_KEY`) fetches from NewsAPI
-  but was only tested against its failure paths (no key configured) — the
-  full success path with a real key is untested.
-- `is_duplicate_of` is reserved schema for a near-duplicate merge step
-  that isn't automated yet — near-duplicate detection
-  (`algorithms/deduplication.py`) is implemented and tested against real
-  mock-data pairs, but nothing currently calls it during ingestion to set
-  that column (only the exact-hash check runs inline there today).
+- Live mode's success path is tested against a fake NewsAPI that returns
+  NewsAPI-shaped responses. Against the real API, only the error path has
+  been exercised (an invalid key is rejected after one request).
+- Category classification and topic extraction are keyword heuristics.
+  They're explainable and fast, but they'll mislabel some "general"
+  headlines (those with no keyword match show as "General").
+- Refresh state (last source, daily request count) is kept in memory, so
+  it resets when the backend restarts. The stored articles persist.
+- The bundled sample dataset has fixed September 2026 dates. When nothing
+  falls inside a recent window, pages widen the window instead of
+  rendering empty, so sample-mode recency scores are near zero.
 - Recommendation/graph/trie structures are rebuilt fresh on each request
   rather than cached or updated incrementally — fine at this project's
   data scale, not something to do at real scale.
@@ -327,8 +379,10 @@ naive search in pure Python, and the heap/sort crossover point), is in
 
 ## 20. Future Improvements
 
-- Automate near-duplicate merging using the existing Jaccard
-  implementation during ingestion, populating `is_duplicate_of`.
+- Persist refresh state and the API request counter (e.g. a small
+  `fetch_log` table) so they survive restarts.
+- Additional live sources (RSS via the already-installed `feedparser`)
+  feeding the same pipeline.
 - Incremental index updates (Trie/graph/topic-index) instead of full
   rebuilds per request.
 - Topic-level preferences (the schema already supports them via
@@ -366,7 +420,7 @@ dynamic-news-feed/
 │       └── components/                    # Layout, ArticleCard, ScoreBreakdown, ...
 ├── frontend-streamlit-legacy/       # the original Phase 7 frontend (reference only)
 ├── data/mock_articles.json      # generated by generate_mock_data.py
-├── tests/{unit,integration}/     # 168 tests (backend)
+├── tests/{unit,integration}/     # 196 tests (backend)
 ├── benchmarks/run_benchmarks.py + results/
 ├── docs/                          # architecture, algorithms, database, api,
 │                                  # development-rules, benchmarking

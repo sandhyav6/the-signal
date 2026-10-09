@@ -82,3 +82,4 @@ except SpecificException as e:
 | 8     | Testing Completeness                 | ✅ Done     |
 | 9     | Benchmarking                         | ✅ Done     |
 | 10    | Documentation & Polish               | ✅ Done     |
+| 11    | Live NewsAPI data & robustness       | ✅ Done     |

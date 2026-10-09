@@ -29,8 +29,10 @@ Browse all articles, paginated.
 **Errors:** `400 bad_pagination` — `page < 1` or `limit` outside `[1, 100]`
 
 ## GET /articles/{article_id}
-Full article detail plus related articles (graph BFS / Jaccard fallback).
-**Response:** `{"article": {...}, "related": [...]}`
+Full article detail, related articles (graph BFS / Jaccard fallback), and
+`coverage`: the same story as reported by other outlets (near-duplicates
+merged at ingestion — see `algorithms/deduplication.py`).
+**Response:** `{"article": {...}, "related": [...], "coverage": [{"id", "source_name", "url"}, ...]}`
 **Errors:** `404 article_not_found`
 
 ## GET /recommendations/{article_id}
@@ -117,10 +119,34 @@ Manually set category weights (as opposed to the interaction-driven deltas
 ## POST /refresh
 Pull new articles through the ingestion pipeline.
 **Body (optional):** `{"mode": "mock"|"live"}` — omit or send `{}` to use the server's configured `APP_ENV`
-**Response:** `{"added": int, "duplicates_skipped": int}`
-**Errors:** none — a live-fetch failure (network error, timeout, or a
-malformed/unexpected-shape JSON response) is caught internally and falls
-back to mock data; this endpoint always returns 200.
+**Response:**
+```json
+{"added": 41, "duplicates_skipped": 3, "near_duplicates": 6, "rejected": 2,
+ "source": "live", "message": null}
+```
+`added` counts new rows; `near_duplicates` is the subset linked to an
+earlier copy of the same story (stored, shown as coverage, hidden from
+feeds). `rejected` = unusable items (no title/url, NewsAPI `[Removed]`).
+`source` is what was actually used: `live`, `cache` (live unavailable or
+inside the refresh cooldown — already-stored articles are served), or
+`mock` (live unavailable and nothing cached). `message` explains any
+degradation in plain language.
+**Errors:** `400 unknown_mode`. Source failures never error — a network
+error, invalid key, rate limit, exhausted daily budget, or malformed
+NewsAPI JSON degrades live → cache → mock and still returns 200.
+
+## GET /status
+Data-source health, for the UI's source badge and mock/live toggle.
+**Response:**
+```json
+{"default_mode": "live", "live_available": true,
+ "last_refresh_at": "2026-10-09T10:15:02Z", "last_source": "live",
+ "last_message": null, "last_errors": [],
+ "requests_used_today": 14, "daily_request_budget": 90,
+ "cooldown_remaining_seconds": 0, "auto_refresh_minutes": 180,
+ "article_count": 412}
+```
+Never exposes the API key — only whether one is configured.
 
 ---
 
@@ -142,4 +168,5 @@ back to mock data; this endpoint always returns 200.
 | GET | /history | user_id | |
 | GET | /preferences | user_id | |
 | PUT | /preferences | user_id (body) | |
-| POST | /refresh | — | never 500s |
+| POST | /refresh | — | never 500s; reports `source` |
+| GET | /status | — | data-source health |
