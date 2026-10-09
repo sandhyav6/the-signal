@@ -6,6 +6,10 @@ error-handler wiring. Run with:
     uvicorn backend.main:app --reload
 """
 
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,10 +23,23 @@ from backend.api.routes import (
     preferences,
     refresh,
     search,
+    status,
     trending,
 )
+from backend.services import scheduler
 
-app = FastAPI(title="Dynamic News Feed API", version="1.0.0")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Start the live-mode auto-refresh thread on startup; stop it on exit."""
+    scheduler.start()
+    yield
+    scheduler.stop()
+
+
+app = FastAPI(title="The Signal API", version="1.1.0", lifespan=lifespan)
 
 register_exception_handlers(app)
 
@@ -46,6 +63,7 @@ app.include_router(bookmarks.router)
 app.include_router(history.router)
 app.include_router(preferences.router)
 app.include_router(refresh.router)
+app.include_router(status.router)
 
 
 @app.get("/")
