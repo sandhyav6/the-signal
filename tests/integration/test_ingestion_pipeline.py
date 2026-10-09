@@ -21,7 +21,7 @@ from sqlalchemy.orm import sessionmaker
 
 import backend.database.repository as repository
 from backend.models.models import Base
-from backend.services import ingestion
+from backend.services import ingestion, news_api_client
 
 
 @pytest.fixture()
@@ -65,22 +65,36 @@ def test_ingest_mock_is_idempotent(fresh_db):
     assert second["duplicates_skipped"] == first["added"] + first["duplicates_skipped"]
 
 
-def test_live_fetch_failure_falls_back_to_mock(fresh_db, monkeypatch):
-    """A live-fetch failure must be caught (not raised) and fall back to
-    mock data, so ingest('live') still returns a valid result.
+@pytest.fixture()
+def live_key(monkeypatch):
+    """Configure a (fake) NewsAPI key and reset refresh/quota state, so the
+    live path actually attempts a request instead of short-circuiting on
+    "no key configured"."""
+    from backend.config import settings
+    monkeypatch.setattr(settings, "news_api_key", "test-key")
+    ingestion.reset_state()
+    yield
+    ingestion.reset_state()
+
+
+def test_live_fetch_failure_falls_back_to_mock(fresh_db, monkeypatch, live_key):
+    """A live-fetch failure must be caught (not raised) and, with an empty
+    database (nothing cached), fall back to mock data, so ingest('live')
+    still returns a valid result.
     """
     import requests
 
     def _raise_connection_error(*args, **kwargs):
         raise requests.ConnectionError("simulated network failure")
 
-    monkeypatch.setattr(ingestion.requests, "get", _raise_connection_error)
+    monkeypatch.setattr(news_api_client.requests, "get", _raise_connection_error)
 
     result = ingestion.ingest("live")
 
     assert isinstance(result, dict)
     assert "added" in result and "duplicates_skipped" in result
     assert result["added"] > 0
+    assert result["source"] == "mock"
 
 
 @pytest.mark.parametrize(
@@ -93,22 +107,22 @@ def test_live_fetch_failure_falls_back_to_mock(fresh_db, monkeypatch):
     ],
     ids=["array-not-object", "missing-articles-key", "articles-not-list", "articles-not-objects"],
 )
-def test_live_fetch_malformed_json_falls_back_to_mock(fresh_db, monkeypatch, malformed_payload):
+def test_live_fetch_malformed_json_falls_back_to_mock(fresh_db, monkeypatch, live_key, malformed_payload):
     """A live response with an unexpected JSON shape must not crash —
     ingest('live') must catch it and fall back to mock data, same as a
     network failure (Part 17 edge case: 'malformed news API JSON').
     """
     class _FakeResponse:
-        def raise_for_status(self):
-            pass
+        ok = True
 
         def json(self):
             return malformed_payload
 
-    monkeypatch.setattr(ingestion.requests, "get", lambda *a, **k: _FakeResponse())
+    monkeypatch.setattr(news_api_client.requests, "get", lambda *a, **k: _FakeResponse())
 
     result = ingestion.ingest("live")
 
     assert isinstance(result, dict)
     assert "added" in result and "duplicates_skipped" in result
     assert result["added"] > 0  # fell back to the (non-empty) mock dataset
+    assert result["source"] == "mock"
