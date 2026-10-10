@@ -17,6 +17,8 @@ import sys
 # Allow running as a script from any directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from backend.database.init_db import create_tables
 from backend.database.engine import SessionLocal
 from backend.models.models import User, Category, Article, Topic, ArticleTopic, UserPreference
@@ -135,6 +137,28 @@ def _seed_articles(session, slug_to_id: dict[str, int], mock_path: str) -> int:
         _seed_article_topics(session, article, raw.get("topics", []))
         inserted += 1
     return inserted
+
+
+def ensure_base_data() -> None:
+    """Create tables, the categories, and the default user + baseline
+    preferences if they're missing — everything the app needs to start on
+    a brand-new database, without loading the sample articles (ingestion
+    fills articles from the live source, or falls back to sample data).
+
+    Called on every app startup, so a fresh deployment needs no manual
+    init/seed step. Safe to run repeatedly. Complexity: O(c) for c categories.
+    """
+    create_tables()
+    with SessionLocal() as session:
+        try:
+            slug_to_id = _seed_categories(session)
+            user_id = _seed_default_user(session)
+            _seed_user_preferences(session, user_id, slug_to_id)
+            session.commit()
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"[seed.ensure_base_data] Failed: {e}")
+            raise
 
 
 def seed() -> None:

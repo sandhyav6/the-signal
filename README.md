@@ -312,6 +312,22 @@ categorized and merged stories): run `python -m backend.services.maintenance`
 once. It backfills missing categories and topics and merges duplicate
 stories. Running it again is safe.
 
+### Deployment
+
+The `Dockerfile` builds the React app and serves it from the FastAPI
+backend: one service, one URL, with the API under `/api`
+(`SERVE_FRONTEND=true`). On startup the backend creates its tables,
+categories and default user, so no manual seed step is needed. In live
+mode it fetches headlines right away and then every `AUTO_REFRESH_MINUTES`.
+
+`render.yaml` deploys it to Render. In the dashboard, choose New →
+Blueprint → this repository, then enter your `NEWS_API_KEY` when asked. A
+free Render instance sleeps after 15 minutes without visits, which also
+pauses background refreshes. Point an uptime monitor (e.g. UptimeRobot)
+at `/health` every 5 minutes to keep it awake. The free plan's disk is
+temporary: the database resets on each restart or redeploy and is
+refilled from NewsAPI on startup.
+
 ## 16. Running Tests
 
 ```bash

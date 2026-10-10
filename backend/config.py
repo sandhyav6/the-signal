@@ -23,6 +23,8 @@ class Settings(BaseSettings):
         refresh_cooldown_seconds: minimum gap between live fetches — a
             refresh inside this window is served from the cached database.
         auto_refresh_minutes: background live-refresh interval (0 = off).
+        serve_frontend: serve the built React app (frontend/dist) from this
+            backend, with the API only under /api — used in deployment.
         database_url: SQLAlchemy connection string. Defaults to local SQLite.
         app_env: "mock" or "live". Controls whether live API calls are made.
         backend_host: FastAPI host.
@@ -44,6 +46,9 @@ class Settings(BaseSettings):
     news_api_daily_budget: int = 90
     refresh_cooldown_seconds: int = 300
     auto_refresh_minutes: int = 180
+
+    # Deployment
+    serve_frontend: bool = False
 
     # Database
     database_url: str = "sqlite:///./data/news.db"

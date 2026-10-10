@@ -1,0 +1,16 @@
+# Render Blueprint — one web service that builds the Dockerfile and serves
+# both the frontend and the API. Create it from the Render dashboard:
+# New > Blueprint > pick this repository.
+services:
+  - type: web
+    name: the-signal
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: live
+      - key: NEWS_API_KEY
+        sync: false   # Render asks you for the value; never commit it
+      - key: AUTO_REFRESH_MINUTES
+        value: "180"
