@@ -1,446 +1,358 @@
-# Dynamic News Feed
+# The Signal
 
-A news feed application built as a Design and Analysis of Algorithms (DAA)
-college project. It's a working news aggregator — articles get ingested,
-cleaned, deduplicated, and ranked into a personalized, diverse, explainable
-feed — but the actual point of the project is the ranking engine underneath
-it: every hand-written algorithm exists because the app genuinely needs it,
-not as decoration bolted onto a CRUD app.
+**Live site: [the-signal-nze8.onrender.com](https://the-signal-nze8.onrender.com)**
+
+The Signal is a news feed that learns what you like and tells you why it
+showed you each story. It pulls real headlines from NewsAPI.org every few
+hours, removes repeats, sorts the rest by how relevant they are to you, and
+puts a short "why this is here" breakdown under every article.
+
+I built it for understanding the algorithms that can be used and implemented. The news
+app is the visible part. The real subject is the ranking engine behind it,
+where every algorithm is written by hand and is there because the feed
+needs it.
+
+> The site runs on Render's free plan. If nobody has visited for a while,
+> the first load can take up to a minute while the server wakes up.
 
 ---
 
-## 1. Overview
+## What you can do on the site
 
-Users get a feed of news articles ranked by a transparent, weighted formula
-(interest match, recency, popularity, keyword relevance, diversity
-penalty), personalized by their own like/save/dislike/read history, with a
-"why am I seeing this?" breakdown on every card. The feed changes visibly
-both when new articles arrive and when the user's behavior changes their
-preferences — and that dynamic loop is the single most important thing
-this project demonstrates and tests for.
+- **For You:** your personal feed. Like a story, mark it "Not interested",
+  save it or mark it read, and the next load of the feed shifts toward
+  what you engage with.
+- **Why this is here:** open this under any story to see its score and
+  the five parts it was built from (your interest in the category, how
+  recent it is, how popular it is, search relevance, and a penalty for
+  showing too much of one category).
+- **Latest:** newest stories first, no personalisation.
+- **Trending:** topics getting the most coverage and engagement right now.
+- **Categories:** Technology, Science, Politics, Business, Sports, Health
+  and Entertainment.
+- **Search:** suggestions appear while you type, and results update as
+  you go.
+- **Related stories and "Also covered by":** each article page lists
+  similar stories and the other outlets that reported the same story.
+- **Saved, History and Preferences:** your bookmarks, what you've read,
+  and sliders to set how much you care about each category.
 
-## 2. Problem Statement
+The badge at the top tells you where the stories came from: **Live**
+(fresh from NewsAPI), **Stored** (articles already saved, used when the
+live source is briefly unavailable) or **Sample data** (a built-in demo
+set, used only when there is nothing else).
 
-A plain reverse-chronological news feed shows every user the same thing
-and never improves. Building a feed that's personalized, deduplicated,
-diverse, and explainable — cheaply, without an ML stack — requires a
-specific set of classical algorithms and data structures, each solving one
-concrete problem the app breaks without. This project builds and
-benchmarks that full pipeline.
+---
 
-## 3. Objectives
+## How it works, in plain terms
 
-- Ingest real top headlines from NewsAPI.org (or a bundled sample
-  dataset) through one shared normalize → categorize → dedupe → store
-  pipeline.
-- Rank articles for each user using a transparent, explainable formula —
-  never a black-box model.
-- Detect exact and near-duplicate articles.
-- Support fast search-as-you-type autocomplete and substring search.
-- Surface trending topics and related articles.
-- Make the feed visibly dynamic: new articles and new user interactions
-  both change what's shown, immediately.
-- Implement every core algorithm by hand, benchmark it against a
-  library/naive baseline, and document where theory and practice diverge.
+1. **Collect.** Every few hours the server asks NewsAPI for the top
+   headlines in each section.
+2. **Clean up.** It throws away broken entries, strips the publisher's
+   name off the end of headlines ("... - Reuters"), and works out a
+   category and a few topic tags for each story.
+3. **Remove repeats.** The same story often arrives from five outlets.
+   Exact copies are dropped. Close copies are kept but grouped under the
+   first one, so you see the story once, and a story covered by many
+   outlets gets a small popularity boost.
+4. **Rank.** For each visit, every recent story gets a score. The best ones
+   are picked and then shuffled slightly so one category can't take over
+   the whole page.
+5. **Learn.** Your likes, saves and dislikes adjust your category weights,
+   and the next feed is scored with the new weights.
 
-## 4. Features
+If NewsAPI is down, the key is wrong or the daily request limit is used up,
+the site keeps working with the articles it already has. It never shows an
+error page because of the news source.
 
-- **Feeds:** For You (personalized), Latest (recency-only), Category
-  (personalized within one category).
-- **Search:** substring search across titles/descriptions, live
-  autocomplete suggestions.
-- **Trending:** top topics by recent mentions, recency, and engagement.
-- **Related articles:** on every article, via a shared-category/topic
-  graph with a same-category Jaccard-similarity fallback.
-- **Personalization:** like / dislike / save / mark-read, each nudging the
-  relevant category's preference weight; a manual preferences editor too.
-- **Bookmarks & history.**
-- **Score transparency:** every ranked card shows its score breakdown.
-- **Live news from NewsAPI.org:** top headlines across 7 sections,
-  auto-categorized and topic-tagged, refreshed in the background every
-  few hours (configurable) and on demand.
-- **Same story, one card:** near-duplicate stories from different outlets
-  are merged at ingestion; the article page lists the other outlets under
-  "Also covered by", and wide coverage boosts the story's popularity.
-- **Graceful degradation:** live → stored articles → sample data, never
-  an error page. A source badge in the masthead ("Live", "Stored",
-  "Sample data") and a plain-language notice explain any fallback.
-- **API-quota protection:** a per-day request budget and a refresh
-  cooldown keep the free NewsAPI plan from being rate-limited.
-- **Mock/live mode toggle** (the Live side is disabled, with a hint, when
-  no API key is configured).
-- **Dynamic-feed indicators:** "N new articles added" and "last updated
-  Xs ago" after every refresh, plus a "New stories available" prompt when
-  a background refresh lands while you're reading.
+---
 
-## 5. Architecture
+## Under the hood
 
 ```
-NewsAPI / Mock JSON → Ingestion → Normalize → Categorize + Tag topics
-   → Exact + near-duplicate check → SQLite
-   → Feed Engine (Ranking → Heap Top-K → Greedy Diversify)
-   → FastAPI → React UI → User Interactions
-   → Preference Engine → loops back into the Feed Engine
+NewsAPI (or sample JSON)
+  -> ingestion: normalize, categorize, tag topics
+  -> exact + near-duplicate check -> SQLite
+  -> feed engine: score every candidate -> heap Top-K -> greedy diversify
+  -> FastAPI (/api) -> React UI
+  -> user interactions -> preference engine -> back into the feed engine
 ```
 
-Backend: FastAPI + SQLAlchemy + SQLite. Frontend: React + Vite + Tailwind
-CSS, talking to the backend purely over HTTP (`frontend/src/api/client.js`
-is the only place that knows the backend exists — no backend code is ever
-imported). Full diagrams and the actual dependency graph:
-**[docs/architecture.md](docs/architecture.md)**.
+**Stack:** Python 3.14, FastAPI, SQLAlchemy and SQLite on the backend.
+React 19, Vite and Tailwind CSS on the frontend. In production, one Docker
+container serves both the built frontend and the API from the same URL.
 
-> An earlier Streamlit/Python frontend (Phase 7 of the original build) is
-> preserved for reference at `frontend-streamlit-legacy/` — it still works
-> against the same backend, but the React frontend in `frontend/` is what's
-> actively developed and documented from here on.
+The ranking formula, with every term scaled to 0 to 100:
 
-## 6. Data Flow
+```
+score = 0.35 * interest + 0.25 * recency + 0.20 * popularity
+      + 0.15 * keyword_relevance - 0.05 * repetition_penalty
 
-| Step | Module |
-|---|---|
-| Fetch live headlines | `backend/services/news_api_client.py` |
-| Ingest (mock or live) + fallback chain | `backend/services/ingestion.py` |
-| Background refresh | `backend/services/scheduler.py` |
-| Normalize | `backend/services/normalizer.py` |
-| Categorize + tag topics | `backend/algorithms/classification.py` |
-| Exact-duplicate check | inline in `ingestion.py`, keyed on `content_hash` |
-| Near-duplicate merge | `algorithms/deduplication.py` → `is_duplicate_of` |
-| Store | `backend/database/repository.py` |
-| Feed generation | `backend/services/feed_service.py` → `algorithms/{ranking,heap,diversification}.py` |
-| API | `backend/api/routes/*.py` |
-| Frontend render | `frontend/src/pages/*.jsx` |
-| User interaction | `POST /interactions` → `interaction_service.py` → `preference_engine.py` |
-| Loop | next `GET /feed` call re-scores with the updated preferences |
+recency = 100 * e^(-λ * age_in_hours),  λ = ln 2 / 24   (halves every 24 hours)
+```
 
-Full request-by-request sequence diagrams: **[docs/architecture.md](docs/architecture.md)**.
+The same function returns the score and its breakdown, so what the
+"why this is here" panel shows is always exactly what was used to rank.
 
-## 7. Algorithms Used
+### Algorithms
 
-| Algorithm | Module | Role |
+| Algorithm | File (`backend/algorithms/`) | What it does in the app |
 |---|---|---|
-| Hashing (dict-based indexes) | `hashing.py` | O(1) article/content_hash lookups |
+| Hash tables and hash sets | `hashing.py` | O(1) lookups by id and content hash |
 | Rabin-Karp | `string_matching.py` | substring search |
-| Trie | `trie.py` | search autocomplete |
-| Binary heap (hand-written) | `heap.py` | Top-K feed & trending selection |
-| Merge sort (hand-written) | `merge_sort.py` | explicit sort utility + benchmark baseline |
-| Jaccard similarity (+ sliding time window) | `deduplication.py` | near-duplicate detection and merging |
-| Keyword-set classification | `classification.py` | categorizing live "general" headlines |
-| Frequency-scored phrase extraction | `classification.py` | topic tags for live articles |
-| Graph + BFS | `graph.py` | related articles |
-| Greedy diversification | `diversification.py` | feed category diversity |
-| Weighted scoring + exponential decay | `ranking.py` | the core ranking formula |
-| HashMap counting + heap | `trending.py` | trending topics |
+| Trie | `trie.py` | search-as-you-type suggestions |
+| Binary heap (hand-written) | `heap.py` | picks the top K stories and topics |
+| Merge sort (hand-written) | `merge_sort.py` | sorting utility and benchmark baseline |
+| Jaccard similarity with a time window | `deduplication.py` | finds and groups near-duplicate stories |
+| Keyword-set classification | `classification.py` | assigns a category to uncategorised headlines |
+| Frequency-scored phrase extraction | `classification.py` | topic tags such as "federal reserve" |
+| Graph + BFS | `graph.py` | related stories |
+| Greedy diversification | `diversification.py` | caps how many stories one category gets per page |
+| Weighted scoring with exponential decay | `ranking.py` | the ranking formula above |
+| Hash map counting + heap | `trending.py` | trending topics |
 
-Purpose, pseudocode, and complexity for every one:
-**[docs/algorithms.md](docs/algorithms.md)**.
+Pseudocode and reasoning for each one are in
+[docs/algorithms.md](docs/algorithms.md).
 
-## 8. Data Structures Used
-
-- **Hash table** (Python `dict`) — every O(1) lookup in the app: article-
-  by-hash, category preference maps, topic frequency counts.
-- **Hash set** — content_hash membership for exact-duplicate checks.
-- **Trie** — prefix tree for autocomplete.
-- **Binary heap** (array-based, hand-written) — Top-K selection.
-- **Graph** (adjacency list) — related-article traversal via BFS.
-- **Doubly-nested dict / composite-key rows** — `user_preferences`'s
-  `(user_id, category_id, topic_id)` composite primary key.
-
-## 9. Complexity Analysis
+### Complexity
 
 | Operation | Complexity |
 |---|---|
 | Hash lookup / insert | O(1) average |
-| Rabin-Karp search | O(n+m) average, O(nm) worst case |
-| Trie insert / prefix search | O(m) descend + O(k) collect |
-| Heap push/pop | O(log n) |
+| Rabin-Karp search | O(n + m) average, O(nm) worst case |
+| Trie insert / prefix search | O(m) to descend + O(k) to collect |
+| Heap push / pop | O(log n) |
 | Heap Top-K selection | O(n log k) |
 | Merge sort | O(n log n) time, O(n) space |
-| Jaccard similarity | O(\|A\|+\|B\|) |
-| Graph BFS | O(V+E) |
+| Jaccard similarity | O(\|A\| + \|B\|) |
+| Batch near-duplicate linking | O(n log n) sort + O(n * w), w = stories inside one 48 h window |
+| Graph BFS | O(V + E) |
 | Greedy diversification | O(n) |
-| Ranking a candidate | O(1) |
-| Trending computation | O(n) build + O(n log k) select |
+| Scoring one article | O(1) |
+| Trending | O(n) to count + O(n log k) to select |
 
-Empirically measured (not just theoretical) at n up to 100,000 synthetic
-articles: **[docs/benchmarking.md](docs/benchmarking.md)**.
+### Benchmark results
 
-## 10. Database Design
+`python -m benchmarks.run_benchmarks` compares the hand-written versions
+with a library or naive baseline at n = 100, 1,000, 10,000 and 100,000.
+Full write-up in [docs/benchmarking.md](docs/benchmarking.md).
 
-SQLite, 8 tables (`users`, `categories`, `articles`, `topics`,
-`article_topics`, `user_preferences`, `user_interactions`, `bookmarks`).
-Full field-level schema, indexes, and the exact corrections made from the
-original design draft: **[docs/database.md](docs/database.md)**.
+- Hash lookup stays flat at about 0.1 μs across all sizes, while a linear
+  scan grows from 8.4 μs to 11.7 ms. The clearest O(1) vs O(n) result.
+- Heap Top-K gets closer to sort-then-slice as n grows and is within about
+  3% of it at n = 100,000, which is roughly where theory says the two
+  should cross.
+- Rabin-Karp is slower than naive substring search here. In pure Python,
+  the rolling-hash arithmetic costs more than the C-level string comparison
+  the naive version gets for free. That's a real finding, not a bug.
 
-## 11. API Docs
+### Data source and fallbacks
 
-FastAPI auto-generates interactive docs at **http://127.0.0.1:8000/docs**
-once the backend is running. Full endpoint reference (14 endpoints):
-**[docs/api.md](docs/api.md)**.
+- One refresh makes 7 NewsAPI requests: one each for technology, science,
+  business, sports, health and entertainment, plus "general". Politics
+  isn't a NewsAPI category, so general headlines are categorised by
+  keyword.
+- A daily request budget (90 by default, under the free plan's 100) and a
+  5-minute cooldown between refreshes protect the API key.
+- The key is sent in a request header, never in the URL, so it can't end
+  up in logs.
+- Order of fallback: live headlines, then stored articles, then the
+  sample dataset. `/api/refresh` and `/api/status` report which one was
+  used.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/categories` | list categories |
-| GET | `/articles`, `/articles/{id}` | browse / detail |
-| GET | `/recommendations/{id}` | related articles |
-| GET | `/feed` | the main ranked feed |
-| GET | `/search`, `/search/suggest` | search + autocomplete |
-| GET | `/trending` | trending topics |
-| POST | `/interactions` | record read/like/save/dislike |
-| POST/GET | `/bookmarks` | save / list saved articles |
-| GET | `/history` | read history |
-| GET/PUT | `/preferences` | view / manually edit preferences |
-| POST | `/refresh` | pull new articles (reports which source was used) |
-| GET | `/status` | data-source health: live/cached/sample, API quota |
+### Database
 
-## 12. UI 
+SQLite with 8 tables: `users`, `categories`, `articles`, `topics`,
+`article_topics`, `user_preferences`, `user_interactions` and `bookmarks`.
+Duplicate stories point at their original through
+`articles.is_duplicate_of`. Full schema in
+[docs/database.md](docs/database.md).
 
-An editorial identity ("The Signal"), not a dashboard: a serif masthead
-(Fraunces) over a horizontal section nav (For You, Latest, Trending,
-Categories, Search, Saved, History, Preferences), warm ivory paper with an
-oxblood signature accent, no icons-as-decoration and no emoji anywhere.
+---
 
-- **Home / For You** — a mock/live mode toggle and a Refresh feed button
-  in the masthead; the main column shows ranked article cards (image,
-  category eyebrow, serif headline, byline, description, and plain-text
-  actions: Like, Not interested, Save, Mark read), each with a collapsed
-  "Why this is here" score breakdown and a lazily-loaded "Related
-  articles" disclosure, plus a "Trending now" rail alongside it.
-- **Search** — a pill-shaped search field with live autocomplete
-  suggestions rendered as tags below it, and matching article cards
-  underneath as you type.
-- **Preferences** — one slider per category (0–1), live-loaded from
-  `GET /preferences`, saved back via `PUT /preferences`.
-- **Refresh** — clicking "Refresh feed" shows "+N new · Xs ago" in the
-  masthead, ticking up in real time.
+## Running it on your own computer
 
-(These are exact descriptions of the actual running app, verified during
-manual browser testing — not aspirational mockups.)
+You need Python 3.11 or newer (developed on 3.14) and Node.js 18 or newer.
 
-## 13. Setup
-
-Requirements: Python 3.11+ (developed and tested against 3.14; see the
-note in `requirements.txt` about version pins if you're on an older
-Python and hit wheel-build errors) and Node.js 18+.
-
-Backend:
+**1. Backend**
 
 ```bash
 python -m venv venv
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
+venv\Scripts\activate          # Windows
+source venv/bin/activate       # macOS / Linux
 pip install -r requirements.txt
 ```
 
-Generate the mock dataset and the database:
+**2. Database with sample articles**
 
 ```bash
-python generate_mock_data.py
-python -m backend.database.init_db
 python -m backend.database.seed
 ```
 
-Frontend:
+**3. Frontend**
 
 ```bash
 cd frontend
 npm install
 ```
 
-## 14. Environment Variables
-
-Copy `.env.example` to `.env` to customize (all settings have safe
-defaults — **the app runs fully in mock mode with no `.env` file at all**):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `NEWS_API_KEY` | *(empty)* | leave blank for mock mode |
-| `NEWS_API_URL` | `https://newsapi.org/v2` | live source endpoint |
-| `NEWS_API_COUNTRY` | `us` | country for top headlines |
-| `NEWS_API_PAGE_SIZE` | `40` | articles requested per section |
-| `NEWS_API_DAILY_BUDGET` | `90` | max NewsAPI requests per UTC day |
-| `REFRESH_COOLDOWN_SECONDS` | `300` | min gap between live fetches |
-| `AUTO_REFRESH_MINUTES` | `180` | background refresh interval in live mode (0 = off) |
-| `DATABASE_URL` | `sqlite:///./data/news.db` | SQLAlchemy connection string |
-| `APP_ENV` | `mock` | `mock` or `live` |
-| `BACKEND_HOST` / `BACKEND_PORT` | `127.0.0.1` / `8000` | FastAPI |
-
-The frontend needs no environment variables in dev — Vite's dev server
-proxies `/api/*` straight to the backend (see `frontend/vite.config.js`),
-so the browser never needs CORS. For a production build served from a
-different origin, set `VITE_API_BASE` to the backend's full URL.
-
-## 15. Running the Project
-
-Two processes, in separate terminals:
+**4. Start both** (two terminals)
 
 ```bash
-# Terminal 1 — backend
 uvicorn backend.main:app --reload
+```
 
-# Terminal 2 — frontend
+```bash
 cd frontend
 npm run dev
 ```
 
-Open **http://localhost:5173** for the app, **http://127.0.0.1:8000/docs**
-for the interactive API reference.
+Open http://localhost:5173 for the app and http://127.0.0.1:8000/docs for
+the interactive API docs.
 
-To pull "new" articles at any point: click **Refresh feed** in the
-masthead, or `curl -X POST http://127.0.0.1:8000/refresh`.
-
-### Live news
+### Turning on live news
 
 1. Get a free key at https://newsapi.org/register.
-2. Copy `.env.example` to `.env` and set `NEWS_API_KEY=<your key>` and
+2. Copy `.env.example` to `.env`, then set `NEWS_API_KEY=your-key` and
    `APP_ENV=live`.
-3. Restart the backend. It fetches headlines on startup and every
-   `AUTO_REFRESH_MINUTES`; the UI starts on **Live** and the masthead
-   badge shows where the stories came from.
+3. Restart the backend. It fetches headlines straight away and then every
+   3 hours, and the badge switches to **Live**.
 
-Or ingest once from the command line: `python -m backend.services.ingestion --mode live`.
+Without a `.env` file the app still runs, just on sample data.
 
-The free NewsAPI developer plan is for development use only and allows
-100 requests/day. One refresh costs 7 requests (one per section), which is
-why the daily budget and cooldown exist. Headlines are credited to
-NewsAPI.org in the footer, and every story links to its publisher.
+If your database was created before live ingestion existed, run
+`python -m backend.services.maintenance` once. It fills in missing
+categories and topics and groups duplicate stories. It's safe to run
+again.
 
-**Upgrading an existing database** (created before live ingestion
-categorized and merged stories): run `python -m backend.services.maintenance`
-once. It backfills missing categories and topics and merges duplicate
-stories. Running it again is safe.
+### Settings
 
-### Deployment
+All optional. Put them in `.env`.
 
-The `Dockerfile` builds the React app and serves it from the FastAPI
-backend: one service, one URL, with the API under `/api`
-(`SERVE_FRONTEND=true`). On startup the backend creates its tables,
-categories and default user, so no manual seed step is needed. In live
-mode it fetches headlines right away and then every `AUTO_REFRESH_MINUTES`.
+| Variable | Default | Meaning |
+|---|---|---|
+| `NEWS_API_KEY` | empty | your NewsAPI key; empty means sample data |
+| `APP_ENV` | `mock` | `live` to use NewsAPI |
+| `NEWS_API_COUNTRY` | `us` | country for top headlines |
+| `NEWS_API_PAGE_SIZE` | `40` | stories requested per section |
+| `NEWS_API_DAILY_BUDGET` | `90` | max NewsAPI requests per day (UTC) |
+| `REFRESH_COOLDOWN_SECONDS` | `300` | minimum gap between live fetches |
+| `AUTO_REFRESH_MINUTES` | `180` | background refresh interval, 0 turns it off |
+| `DATABASE_URL` | `sqlite:///./data/news.db` | database location |
+| `SERVE_FRONTEND` | `false` | serve the built React app from the backend (set in the Dockerfile) |
 
-`render.yaml` deploys it to Render. In the dashboard, choose New →
-Blueprint → this repository, then enter your `NEWS_API_KEY` when asked. A
-free Render instance sleeps after 15 minutes without visits, which also
-pauses background refreshes. Point an uptime monitor (e.g. UptimeRobot)
-at `/health` every 5 minutes to keep it awake. The free plan's disk is
-temporary: the database resets on each restart or redeploy and is
-refilled from NewsAPI on startup.
+---
 
-## 16. Running Tests
+## Deployment
+
+The live site runs on [Render](https://render.com) from the `Dockerfile`
+in this repo. The image builds the React app, installs the backend, and
+starts one server that serves the site at `/` and the API at `/api`. On
+startup it creates the database tables, categories and default user, so
+there are no manual setup steps.
+
+To deploy your own copy:
+
+1. Push the repo to GitHub.
+2. In Render, choose **New > Blueprint** and pick the repo. Render reads
+   `render.yaml`.
+3. Paste your NewsAPI key when it asks for `NEWS_API_KEY`, then deploy.
+4. Point a free uptime monitor such as UptimeRobot at `/health` every
+   5 minutes. Render's free plan sleeps after 15 idle minutes, and while
+   it sleeps the background refresh is paused too.
+
+On the free plan the disk is temporary, so saved articles, history and
+preferences reset whenever the service restarts or redeploys. Headlines
+come back by themselves on startup.
+
+---
+
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-196 tests (unit + integration), covering every algorithm module, every API
-endpoint and its documented error cases, the full ingestion pipeline, the
-live NewsAPI path against a fake API (success, partial failure, invalid
-key, request budget, cooldown, cache/mock fallback), and
-the edge-case checklist (empty DB, single article, near-duplicates,
-malformed API responses, 10,000+ synthetic articles, and more — see
-`tests/integration/test_edge_cases.py`).
-
-## 17. Benchmarking
-
-```bash
-python -m benchmarks.run_benchmarks
-```
-
-Runs 4 comparisons (Merge Sort vs `sorted()`, Heap Top-K vs sort-then-
-slice, Rabin-Karp vs naive search, hash lookup vs linear scan) at
-n ∈ {100, 1,000, 10,000, 100,000}, writing CSVs and charts to
-`benchmarks/results/`.
-
-## 18. Results
-
-Full expected-vs-observed analysis, including two genuinely interesting
-divergences from naive theoretical expectations (Rabin-Karp losing to
-naive search in pure Python, and the heap/sort crossover point), is in
-**[docs/benchmarking.md](docs/benchmarking.md)**. Headline numbers:
-
-- Hash lookup stays flat (~0.1μs) from n=100 to n=100,000; linear scan
-  grows almost exactly linearly (8.4μs → 11.7ms) — the cleanest O(1) vs
-  O(n) result of the four.
-- Heap Top-K closes the gap with full-sort-then-slice steadily as n
-  grows, landing within ~3% of it by n=100,000 — right where the
-  crossover is expected.
-- Rabin-Karp is consistently slower than naive substring search in this
-  pure-Python implementation, because Python-level rolling-hash
-  arithmetic costs more than the C-level string comparison naive search
-  gets for free — a real, documented finding, not a bug.
-
-## 19. Limitations
-
-- No authentication — a single hardcoded demo user (`id=1`), by design
-  (see the architecture doc's Part 12).
-- Live mode's success path is tested against a fake NewsAPI that returns
-  NewsAPI-shaped responses. Against the real API, only the error path has
-  been exercised (an invalid key is rejected after one request).
-- Category classification and topic extraction are keyword heuristics.
-  They're explainable and fast, but they'll mislabel some "general"
-  headlines (those with no keyword match show as "General").
-- Refresh state (last source, daily request count) is kept in memory, so
-  it resets when the backend restarts. The stored articles persist.
-- The bundled sample dataset has fixed September 2026 dates. When nothing
-  falls inside a recent window, pages widen the window instead of
-  rendering empty, so sample-mode recency scores are near zero.
-- Recommendation/graph/trie structures are rebuilt fresh on each request
-  rather than cached or updated incrementally — fine at this project's
-  data scale, not something to do at real scale.
-- Search ranking is a plain substring match; it isn't blended with the
-  personalization ranking formula (the architecture doc notes this
-  blending as optional).
-
-## 20. Future Improvements
-
-- Persist refresh state and the API request counter (e.g. a small
-  `fetch_log` table) so they survive restarts.
-- Additional live sources (RSS via the already-installed `feedparser`)
-  feeding the same pipeline.
-- Incremental index updates (Trie/graph/topic-index) instead of full
-  rebuilds per request.
-- Topic-level preferences (the schema already supports them via
-  `user_preferences.topic_id`; only category-level preferences are wired
-  up today).
-- A real onboarding flow (interest selection) instead of everyone
-  starting at the cold-start baseline.
-- Caching layer for `/trending` and `/recommendations` if this ever needed
-  to handle real traffic.
-- A CI pipeline running `pytest` and the benchmark suite on every change.
+196 unit and integration tests. They cover every algorithm, every API
+endpoint and its error cases, and the ingestion pipeline. The live NewsAPI
+path is tested against a fake API: success, one section failing, an
+invalid key, the daily budget running out, the cooldown, and the fallback
+to stored or sample data. Edge cases include an empty database, a single
+article, near-duplicates, malformed API responses and 10,000+ articles.
 
 ---
 
-## Project Structure
+## API
+
+Interactive docs are at `/docs` on a running server. Full reference:
+[docs/api.md](docs/api.md). On the deployed site every path below starts
+with `/api`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/categories` | list categories |
+| GET | `/articles`, `/articles/{id}` | browse, or one article with related stories and coverage |
+| GET | `/recommendations/{id}` | related stories |
+| GET | `/feed` | the ranked feed (`foryou`, `latest` or `category`) |
+| GET | `/search`, `/search/suggest` | search and autocomplete |
+| GET | `/trending` | trending topics |
+| POST | `/interactions` | record a read, like, save or dislike |
+| POST / GET | `/bookmarks` | save a story / list saved stories |
+| GET | `/history` | reading history |
+| GET / PUT | `/preferences` | view or edit category weights |
+| POST | `/refresh` | fetch new stories now; says which source was used |
+| GET | `/status` | live, stored or sample; API requests used today |
+| GET | `/health` | health check for uptime monitors |
+
+---
+
+## Project structure
 
 ```
 dynamic-news-feed/
 ├── backend/
-│   ├── main.py               # FastAPI entrypoint — no business logic
-│   ├── config.py              # env-var settings
-│   ├── api/                   # routes/, errors.py, serializers.py
-│   ├── services/               # orchestration (ingestion, feed, preferences, search, ...)
-│   ├── algorithms/              # pure, dependency-free algorithm implementations
-│   ├── models/                  # SQLAlchemy models (schema only)
-│   ├── database/                 # engine, repository.py, init_db.py, seed.py
-│   └── utils/                     # text cleaning, date parsing
-├── frontend/                       # React + Vite + Tailwind CSS
-│   ├── index.html
-│   ├── vite.config.js               # dev-server proxy to the backend
-│   └── src/
-│       ├── main.jsx, App.jsx          # entrypoint + router
-│       ├── api/client.js               # HTTP-only bridge to the backend
-│       ├── lib/                         # AppContext, useApi hook, formatting
-│       ├── pages/                        # one file per screen
-│       └── components/                    # Layout, ArticleCard, ScoreBreakdown, ...
-├── frontend-streamlit-legacy/       # the original Phase 7 frontend (reference only)
-├── data/mock_articles.json      # generated by generate_mock_data.py
-├── tests/{unit,integration}/     # 196 tests (backend)
-├── benchmarks/run_benchmarks.py + results/
-├── docs/                          # architecture, algorithms, database, api,
-│                                  # development-rules, benchmarking
-├── requirements.txt
-├── AGENTS.md                      # development protocol (mirrored in docs/development-rules.md)
-└── .env.example
+│   ├── main.py            app setup, routes, serves the built frontend in production
+│   ├── config.py          settings read from environment variables
+│   ├── algorithms/        the hand-written algorithms (no database or web code)
+│   ├── services/          ingestion, NewsAPI client, feed, search, trending, scheduler
+│   ├── api/routes/        one file per group of endpoints
+│   ├── database/          engine, repository, seeding
+│   ├── models/            SQLAlchemy tables
+│   └── utils/             text cleaning and date parsing
+├── frontend/              React + Vite + Tailwind
+│   └── src/               pages, components, API client
+├── frontend-streamlit-legacy/   the first frontend, kept for reference
+├── tests/                 unit and integration tests
+├── benchmarks/            benchmark runner (results are generated)
+├── docs/                  architecture, algorithms, database, API, benchmarks
+├── data/mock_articles.json      sample dataset
+├── Dockerfile, render.yaml      deployment
+└── .env.example           settings template
 ```
+
+---
+
+## Known limitations
+
+- There are no user accounts. Everyone shares one demo user, so on the
+  live site your likes and saves mix with other visitors'.
+- Categories and topic tags come from keyword rules. They're fast and easy
+  to explain, but some general headlines get no category and show as
+  "General".
+- The refresh status and the daily request count live in memory and reset
+  when the server restarts.
+- NewsAPI's free plan is meant for development. A site with real traffic
+  would need a paid plan or a different source.
+- The trie, graph and topic index are rebuilt on each request. That's fine
+  at this size but wouldn't scale to a large archive.
+- Search results are ordered by date and aren't blended with the
+  personal ranking yet.
+
+## Ideas for later
+
+- User accounts, so each visitor gets their own feed.
+- A persistent database on the host, plus storing refresh history.
+- More sources, such as publishers' RSS feeds, through the same pipeline.
+- Topic-level preferences (the database already supports them).
+- Updating the trie and graph incrementally instead of rebuilding them.
+- Running the tests automatically on every push.
